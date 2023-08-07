@@ -1,0 +1,332 @@
+---
+title: "Comparativo de Empresas por Indicadores Financieros - IR 2014 Ecuador"
+author: "Ana Gabriela Taipe, Jhanelly Chalá, Maria Gabriela Murillo"
+date: "2023-08-06"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+# Introducción
+
+Este proyecto tiene como objetivo analizar y comparar los indicadores financieros de empresas obligadas a llevar contabilidad, utilizando los datos obtenidos del Formulario 102 de Declaración de IR de personas naturales y sucesiones indivisas. La Superintendencia de Compañías (2009) ha definido cuatro tipos de indicadores financieros: liquidez, gestión, solvencia y rentabilidad. A través de este estudio, buscamos entender cómo varían estos indicadores según el tamaño de las empresas, lo que permitirá tomar decisiones informadas sobre su rendimiento y solidez financiera.
+
+Los fórmula de los ratios financieros a utilizar son:
+
+$$\text{Liquidez Corriente} = \frac{\text{Activo Corriente}}{\text{Pasivo Corriente}}$$
+
+$$\text{Endeudamiento Activo} = \frac{\text{Pasivo}}{\text{Activo}}$$ $$\text{Endeudamiento Patrimonial} = \frac{\text{Pasivo}}{\text{Patrimonio}}$$
+
+$$\text{Endeudamiento Activo Fijo} = \frac{\text{Patrimonio}}{\text{Activo No Corriente}}$$
+
+$$\text{Apalancamiento} = \frac{\text{Activo}}{\text{Patrimonio}}$$
+
+## Objetivos
+
+**Objetivos General:** Analizar los indicadores financieros de liquidez y solvencia de las empresas clasificadas por su tamaño, status y ubicación geográfica.
+
+**Objetivos Específicos:**
+
+1\. Analizar la situación de las empresas a través de indicadores financieros.
+
+2\. Analizar el endeudamiento de Activo entre las empresas micro + pequeñas y grandes.
+
+3\. Identificar la liquidez por tipo de compañía y su número de trabajadores.
+
+# Datos
+
+En los datos extraídos del Formulario 102 encontramos la información que describe el "Estado de Situación Financiera" y el "Estado de Resultados" para cada empresa de Ecuador en el año 2014, para nuestro análisis vamos a usar los casilleros del ESF tales como: Total de Activos, Activos Corrientes, Activos no Corrientes, Total de Pasivos, Pasivos Corrientes, y Patrimonio.
+
+Los datos a usar provienen del documento "balance_2014.xlsx", el cual se conforma de 347 variables y 47033 registros.
+
+Para preparar la data, se cargaron las librerías:
+
+```{r}
+library(openxlsx)
+library(magrittr) 
+library(dplyr)
+library(tidyr) 
+library(tibble) 
+library(ggplot2)
+```
+
+```{r, echo=FALSE}
+#Cargamos los datos:----
+data1 <- read.xlsx("Data/balances_2014.xlsx")
+
+# Tibble empresas: ----
+empresas <- tibble::as_tibble(data1)
+
+#Seleccionamos las variables: ----
+empresas <- empresas %>% select(nombre_cia, situacion, tipo, pais, provincia, canton, ciudad, ciiu4_nivel1,
+                                tamanio,
+                                trab_direc,
+                                trab_admin,
+                                ciiu4_nivel6, v345, v539, v599, v499, v698,v498)
+
+```
+
+y posterior a ello, se creó el tibble "empresas" seleccionando las variables de interés: *nombre_cia, situacion, tipo, pais, provincia, canton, ciudad, ciiu4_nivel1, tamanio, trab_direc, trab_admin, ciiu4_nivel6, v345, v539, v599, v499, v698,v498*.
+
+Se creó también las nuevas variables con los indicadores financieros y en los resultados de las operaciones realizadas se reemplazó los valores `NaN` por `0`, ya que su presencia puede afectar los resultados o incluso generar errores. Al reemplazarlos con 0 permiten que los cálculos se realicen correctamente y evita problemas posteriores en el análisis.
+
+También se reemplazó `inf` por `NA` debido a que los valores infinitos pueden distorsionar el cálculo, ya que pueden influir de manera desproporcionada en estadísticas y resultados. Al reemplazar los valores infinitos con `NA`, puedes asegurarte de que los cálculos se realicen correctamente y que los resultados sean más consistentes.
+
+```{r}
+empresas <- empresas %>% mutate(Liquidez_corriente= v345/v539,
+                    Endeudamiento_activo= v599/v499,
+                    Endeudamiento_patrimonial = v599/v698,
+                    Endeudamiento_activo_fijo = v698/v498,
+                    Apalancamiento=v499/v698)
+
+```
+
+```{r, echo=FALSE }
+empresas <- empresas %>% select(-c(v345,v539,v599,v499,v698,v498))
+empresas <- empresas %>% rename("Empresas"="nombre_cia",
+                    "Status"="situacion",
+                    "Tipo_empresa"= "tipo",
+                    "Actividad_economica"= "ciiu4_nivel1",
+                    "Subactividad" = "ciiu4_nivel6") %>% 
+             select_all(toupper)
+```
+
+```{r}
+empresas <- empresas %>% mutate_if(is.numeric, ~replace(., is.nan(.), 0)) %>%
+             mutate_if(is.numeric, ~replace(., is.infinite(.), NA))
+```
+
+De las 13 categorías que contiene la variable `STATUS` se tomó las más representativas: ACTIVO, DISOLUCIÓN (en ella incluye, `DISOLUC. LIQUIDAC. OFICIO INSC. EN RM`,`DISOLUC. LIQUIDAC. OFICIO NO INSC. EN RM`, `DISOLUC. Y LIQUIDAC. ANTIC. INSCR. RM`,`DISOLUC. Y LIQUIDAC. ANTIC. NO INSC. EN RM`) y el resto se le agrupó en la categoría OTROS.
+
+```{r}
+empresas %>% select(STATUS,TAMANIO) %>% group_by(STATUS,TAMANIO) %>%
+             summarize(total_empresas=n()) %>% 
+             pivot_wider(names_from=TAMANIO,values_from=total_empresas) %>% View()
+```
+
+```{r, echo=FALSE}
+empresas <- empresas %>% mutate(STATUS_2 = 
+                                  if_else(STATUS %in% c("DISOLUC. LIQUIDAC. OFICIO INSC. EN RM",
+                                                        "DISOLUC. LIQUIDAC. OFICIO NO INSC. EN RM",
+                                                        "DISOLUC. Y LIQUIDAC. ANTIC. INSCR. RM",
+                                                        "DISOLUC. Y LIQUIDAC. ANTIC. NO INSC. EN RM"), "DISOLUCION",
+                                  if_else(STATUS == "ACTIVA", "ACTIVA","OTROS")))
+```
+
+Se pivoteó la data de ancho a largo, con el objetivo de crear una variable `Indicadores` que contenga los diferente tipo de indicadores financieros.
+
+```{r}
+empresas <-  empresas %>%
+  gather(key = "Indicador",
+         value = "Valor", 
+         LIQUIDEZ_CORRIENTE, ENDEUDAMIENTO_ACTIVO, 
+         ENDEUDAMIENTO_PATRIMONIAL, ENDEUDAMIENTO_ACTIVO_FIJO,
+         APALANCAMIENTO)
+
+```
+
+Se realizó la imputación de los datos, reemplazando los `NA` con la media de las variables numéricas correspondientes de acuerdo al tamaño de la empresa.
+
+```{r, echo=FALSE}
+empresas_pequenia <- empresas %>% filter(TAMANIO=="PEQUEÑA")
+empresas_micro <- empresas %>% filter(TAMANIO=="MICRO")
+empresas_mediana <- empresas %>% filter(TAMANIO=="MEDIANA")
+empresas_grande <- empresas %>% filter(TAMANIO=="GRANDE")
+```
+
+```{r}
+empresas_pequenia_imp <- empresas_pequenia %>% 
+                         mutate_if(is.numeric, ~replace(.,is.na(.),mean(.,na.rm = TRUE)))
+
+empresas_micro_imp <- empresas_micro %>% 
+                         mutate_if(is.numeric, ~replace(.,is.na(.),mean(.,na.rm = TRUE)))
+
+empresas_mediana_imp <- empresas_mediana %>% 
+                         mutate_if(is.numeric, ~replace(.,is.na(.),mean(.,na.rm = TRUE)))
+
+empresas_grande_imp <- empresas_grande %>% 
+                         mutate_if(is.numeric, ~replace(.,is.na(.),mean(.,na.rm = TRUE)))
+```
+
+Finalemente, se consolida el objeto `empresas` con una data más consistente.
+
+```{r}
+empresas <- empresas_pequenia_imp %>% 
+  bind_rows(empresas_micro_imp) %>% 
+  bind_rows(empresas_mediana_imp) %>%
+  bind_rows(empresas_grande_imp) 
+```
+
+## Análisis
+
+La siguiente tabla muestra el orden del número de empresas por cantón y por actividad económica donde se puede observar que Guayaquil y Quito tienen la mayoría de empresas.
+
+Entre las actividades economicas que mas destacan, tenemos: Comercio (G), Inmobiliarias (L), Actividades Profesionales (M), Industria de Manufactura (C), Agricultura (A) y Construcción (F).
+
+```{r, include=TRUE}
+Tabla <- empresas %>% group_by(ACTIVIDAD_ECONOMICA,CANTON) %>% 
+             summarise(TOTAL_EMPRESAS=n()) %>% 
+             arrange(desc(TOTAL_EMPRESAS))
+print(Tabla)
+```
+
+A continuación, mostramos el comparativo de los indicadores financieros de liquidez y solvencia por Status y provincia por cada tamáño de empresa.
+
+
+```{r, fig.width=10, fig.height=5}
+##Creando el gráfico de barras para las empresas pequeñas
+ggplot(empresas_pequenia_imp, aes(x = Valor, y = PROVINCIA, fill = Indicador)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Indicadores financieros Empresas Pequeñas",
+       x = "Provincia",
+       y = "Valor",
+       fill = "Indicador") +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())+
+  facet_wrap("STATUS_2")
+```
+
+```{r, fig.width=10, fig.height=5}
+##Creando el gráfico de barras para las empresas micro
+ggplot(empresas_micro_imp, aes(x = Valor, y = PROVINCIA, fill = Indicador)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Indicadores financieros Empresas Micro",
+       x = "Provincia",
+       y = "Valor",
+       fill = "Indicador") +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())+
+  facet_wrap("STATUS_2")
+```
+
+```{r, fig.width=10, fig.height=5}
+##Creando el gráfico de barras para las empresas mediana
+ggplot(empresas_mediana_imp, aes(x = Valor, y = PROVINCIA, fill = Indicador)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Indicadores financieros Empresas Mediana",
+       x = "Provincia",
+       y = "Valor",
+       fill = "Indicador") +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())+
+  facet_wrap("STATUS_2")
+```
+
+```{r, fig.width=10, fig.height=5}
+##Creando el gráfico de barras para las empresas grande
+ggplot(empresas_grande_imp, aes(x = Valor, y = PROVINCIA, fill = Indicador)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Indicadores financieros Empresas Grandes",
+       x = "Provincia",
+       y = "Valor",
+       fill = "Indicador") +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())+
+  facet_wrap("STATUS_2")
+```
+
+
+Como se puede observar las empresas micro, pequeñas, medianas y grandes con STATUS activo, tienen un alto nivel de endeudamiento y apalancamiento. 
+
+Un nivel alto de endeudamiento para financiar sus activos no corrientes quiere decir que presentan mayor riesgo de insolvencia y están más expuestos a los cambios en las tasas de interés de los mercados financieros. 
+
+Un nivel alto de apalancamiento implica una mayor carga de deuda que debe ser atendida con los ingresos generados por la empresa. Esto aumenta el riesgo financiero, ya que los pagos de interés y capital de la deuda deben cumplirse incluso si los ingresos son bajos. 
+
+En Pichincha también podemos ver que ciertas empresas grandes y micro, presentan un buen nivel de liquidez corriente, lo cual les permite pagar sus deudas y obligaciones a corto plazo y, por lo cual, menor riesgo de insolvencia. 
+
+Esto se resalta más en cantones como Pichincha y Guayas. 
+
+
+A continuación, mostramos el comparativo de los indicadores financieros de liquidez y solvencia por tipo de empresa.
+
+```{r, fig.width=10, fig.height=5}
+ggplot(empresas, aes(x = Valor, y = TIPO_EMPRESA, fill = Indicador)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Indicadores Financieros por Tipo de Empresa",
+       x = "Valor",
+       y = "Tipo de Empresa",
+       fill = "Indicador") +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
+```
+
+Como se puede observar los tipos de empresa "Responsabilidad Limitada" y "Anónima" tienen un alto nivel de endeudamiento y apalancamiento. Esto implica que un alto apalancamiento puede limitar la capacidad de las empresas para acceder a nuevas fuentes de financiamiento, ya que los prestamistas pueden considerar que estas empresas están sobreendeudadas y por lo tanto representan más riesgo de no pago. 
+
+
+
+A continuación, respondemos las siguientes de preguntas de investigación:
+
+1.  ¿El endeudamiento del activo fue mayor en empresas micro + pequeñas vs. grandes?
+Con el siguiente gráfico, vemos que el endeudamiento del activo fue mayor en empresas micro + pequeñas que en empresas grandes. 
+
+```{r, fig.width=10, fig.height=5}
+empresas_endeu_act <- empresas %>% mutate(TAMANIO_2=
+              if_else(TAMANIO %in% c("PEQUEÑA","MICRO"),"MICRO+PEQUE",
+                      if_else(TAMANIO == "GRANDE", "GRANDE","OTROS"))) %>% 
+  filter(Indicador=="ENDEUDAMIENTO_ACTIVO", TAMANIO_2 %in% c("GRANDE","MICRO+PEQUE"))
+
+
+ggplot(empresas_endeu_act , aes(x = TAMANIO_2, y = Valor)) +
+  geom_point() +
+  labs(title = "Endeudamiento del Activo: Micro + Peque vs Grande ",
+       x = "Tamaño",
+       y = "Endeudamiento del activo") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  theme(legend.position = "none")
+```
+
+
+2.  ¿La liquidez por tipo de compañía es diferente entre aquellas empresas que tienen más de 60 trabajadores directos y que cuenta con 100 a 800 trabajadores administrativos?
+
+```{r, echo=FALSE}
+empresas_trab_0<- empresas %>% 
+                  mutate(TRAB_DIREC_2= if_else(TRAB_DIREC>60,1,0),
+                         TRAB_ADMIN_2=if_else(TRAB_ADMIN>=100&TRAB_ADMIN<=800,1,0),
+                         TRABAJADORES=if_else(TRAB_DIREC_2==1&TRAB_ADMIN_2==1,1,0)) %>% 
+                  filter(Indicador=="LIQUIDEZ_CORRIENTE") 
+
+```
+
+Las empresas con liquidez por tipo de compañía que cumplen con las condiciones mencionadas (1 significa que cumplen la condición, 0 que no cumplen con la condición) son pocas y son las siguientes:
+
+```{r, echo=FALSE}
+empresas_trab_8<- empresas %>% 
+                  mutate(TRAB_DIREC_2= if_else(TRAB_DIREC>60,1,0),
+                         TRAB_ADMIN_2=if_else(TRAB_ADMIN>=100&TRAB_ADMIN<=800,1,0),
+                         TRABAJADORES=if_else(TRAB_DIREC_2==1&TRAB_ADMIN_2==1,1,0)) %>% 
+                  filter(Indicador=="LIQUIDEZ_CORRIENTE", TRABAJADORES ==1) 
+
+print(empresas_trab_8)
+
+```
+
+Entonces, como podemos observar las empresas que no cumplen con las condiciones tienen mayor liquidez frente a las que si cumplen.  
+
+
+
+```{r, fig.width=10, fig.height=5}
+ggplot(empresas_trab_0 , aes(x = Valor , y = TIPO_EMPRESA)) +
+  geom_point() +
+  labs(title = "Liquidez por Tipo de Compañía",
+       x = "Liquidez corriente",
+       y = "Tipo de compañía") +
+  facet_wrap("TRABAJADORES")+
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
+```
+
+
+3.  Describe el top 10 de empresas con mayor apalancamiento
+
+```{r, include=TRUE}
+empresas %>% filter(Indicador=="APALANCAMIENTO") %>% arrange(desc(Valor)) %>% head(10)
+```
+
+Vemos que las empresas con mayor apalancamiento se encuentran en su mayoría en Guayas y tienen diferente tipo de actividad económica como: INDUSTRIAS MANUFACTURERAS (C), ACTIVIDADES FINANCIERAS Y DE SEGUROS (K), AGRICULTURA, GANADERÍA,  SILVICULTURA Y PESCA (A), COMERCIO AL POR MAYOR Y AL POR MENOR; REPARACIÓN DE VEHÍCULOS AUTOMOTORES Y MOTOCICLETAS (G), EXPLOTACIÓN DE MINAS Y CANTERAS (B) y ACTIVIDADES INMOBILIARIAS (L). Además en su mayoría son Activas y Micro.
+
+
+
+# Conclusión
+
+1. El endeudamiento de activo en empresas peque+micro es mayor que en empresas grandes debido a que al estar en crecimiento comercial no disponen de un capital financiero sólido y tienen la necesidad de buscar financiamiento externo.
+
+2. Como se pudo observar solo dos tipos de compañías (ANONIMA y SUCURSAL EXTRANJERA) cumplen con la condición de tener más de 60 trabajadores directos y tener entre 100 a 800 trabajadores administrativos, por lo tanto la liquidez entre tipo de companias si es diferente bajo la condicion mencionada.
+
+3. Se concluye que para realizar un análisis más profundo sobre el apalancamiento, se debería realizar mediante grupo de actividad económica, porque ciertas industrias pueden requerir niveles más altos de apalancamiento debido a la naturaleza de su actividad económica. 
+
